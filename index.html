@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>チェッカー完全版</title>
+
+<style>
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: #f5f5f5;
+}
+
+#board {
+  display: grid;
+  grid-template-columns: repeat(8, 60px);
+  grid-template-rows: repeat(8, 60px);
+  margin: 20px auto;
+  border: 2px solid #333;
+}
+
+.square {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.square.black { background: #769656; }
+.square.white { background: #eeeed2; }
+
+.piece {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  color: gold;
+}
+
+.piece.red { background: red; }
+.piece.black { background: black; }
+
+.king::after {
+  content: "K";
+  font-size: 20px;
+}
+
+.highlight {
+  outline: 3px solid yellow;
+}
+</style>
+</head>
+
+<body>
+<h1>チェッカー完全版</h1>
+<p id="status">赤のターン（あなた）</p>
+<div id="board"></div>
+
+<script>
+const board = document.getElementById("board");
+const statusText = document.getElementById("status");
+
+let currentPlayer = "red";
+let selected = null;
+let thinking = false;
+
+const squares = [];
+
+// 盤作成
+for (let r = 0; r < 8; r++) {
+  squares[r] = [];
+  for (let c = 0; c < 8; c++) {
+    const sq = document.createElement("div");
+    sq.className = "square " + ((r + c) % 2 === 0 ? "white" : "black");
+    board.appendChild(sq);
+    squares[r][c] = { square: sq, piece: null };
+    sq.onclick = () => onClick(r, c);
+  }
+}
+
+// 初期配置
+function init() {
+  for (let r = 0; r < 3; r++)
+    for (let c = 0; c < 8; c++)
+      if ((r + c) % 2) addPiece(r, c, "black");
+
+  for (let r = 5; r < 8; r++)
+    for (let c = 0; c < 8; c++)
+      if ((r + c) % 2) addPiece(r, c, "red");
+}
+
+function addPiece(r, c, color, king=false) {
+  const p = document.createElement("div");
+  p.className = `piece ${color}` + (king ? " king" : "");
+  squares[r][c].square.appendChild(p);
+  squares[r][c].piece = { color, king };
+}
+
+// クリック処理
+function onClick(r, c) {
+  if (currentPlayer === "black" || thinking) return;
+
+  if (selected) {
+    const caps = allCaptures("red");
+    if (validMove(selected.r, selected.c, r, c, caps)) {
+      const took = move(selected.r, selected.c, r, c);
+      clear();
+      if (took && canCapture(r, c)) {
+        selected = { r, c };
+        highlight(r, c);
+        return;
+      }
+      if (checkWin()) return;
+      currentPlayer = "black";
+      statusText.textContent = "黒のターン（コンピュータ）";
+      setTimeout(aiMove, 500);
+    }
+    selected = null;
+    clear();
+    return;
+  }
+
+  const piece = squares[r][c].piece;
+  if (piece && piece.color === "red") {
+    selected = { r, c };
+    highlight(r, c);
+  }
+}
+
+// 移動判定
+function validMove(fr, fc, tr, tc, caps) {
+  if (squares[tr][tc].piece) return false;
+  const p = squares[fr][fc].piece;
+  const dr = tr - fr, dc = tc - fc;
+
+  // キャプチャ
+  if (Math.abs(dr) === 2 && Math.abs(dc) === 2) {
+    const mr = fr + dr/2, mc = fc + dc/2;
+    const mid = squares[mr][mc].piece;
+    if (mid && mid.color !== p.color) {
+      if (caps.length)
+        return caps.some(m => m.fr===fr && m.fc===fc && m.tr===tr && m.tc===tc);
+      return true;
+    }
+  }
+
+  // 通常
+  if (!caps.length && Math.abs(dr)===1 && Math.abs(dc)===1) {
+    if (p.king) return true;
+    if (p.color==="red" && dr===-1) return true;
+    if (p.color==="black" && dr===1) return true;
+  }
+  return false;
+}
+
+// 駒移動
+function move(fr, fc, tr, tc) {
+  const p = squares[fr][fc].piece;
+  addPiece(tr, tc, p.color, p.king);
+  squares[fr][fc].square.innerHTML="";
+  squares[fr][fc].piece=null;
+
+  if ((p.color==="red" && tr===0) || (p.color==="black" && tr===7)) {
+    squares[tr][tc].piece.king = true;
+    squares[tr][tc].square.firstChild.classList.add("king");
+  }
+
+  if (Math.abs(tr-fr)===2) {
+    const mr=(fr+tr)/2, mc=(fc+tc)/2;
+    squares[mr][mc].square.innerHTML="";
+    squares[mr][mc].piece=null;
+    return true;
+  }
+  return false;
+}
+
+// キャプチャ探索
+function allCaptures(color){
+  const res=[];
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=squares[r][c].piece;
+    if(p&&p.color===color){
+      [[2,2],[2,-2],[-2,2],[-2,-2]].forEach(([dr,dc])=>{
+        const tr=r+dr, tc=c+dc;
+        if(tr>=0&&tr<8&&tc>=0&&tc<8){
+          const mid=squares[r+dr/2][c+dc/2].piece;
+          if(!squares[tr][tc].piece && mid && mid.color!==color)
+            res.push({fr:r,fc:c,tr,tc});
+        }
+      });
+    }
+  }
+  return res;
+}
+
+function canCapture(r,c){
+  return allCaptures(currentPlayer).some(m=>m.fr===r&&m.fc===c);
+}
+
+// AI
+function aiMove(){
+  thinking=true;
+  const moves=[];
+  const caps=allCaptures("black");
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=squares[r][c].piece;
+    if(p&&p.color==="black"){
+      for(let tr=0;tr<8;tr++)for(let tc=0;tc<8;tc++){
+        if(validMove(r,c,tr,tc,caps))
+          moves.push({r,c,tr,tc});
+      }
+    }
+  }
+  if(!moves.length) return;
+  const m=moves[Math.floor(Math.random()*moves.length)];
+  const took=move(m.r,m.c,m.tr,m.tc);
+  if(took && canCapture(m.tr,m.tc)){
+    setTimeout(aiMove,300);
+    return;
+  }
+  if(checkWin()) return;
+  currentPlayer="red";
+  statusText.textContent="赤のターン（あなた）";
+  thinking=false;
+}
+
+// 勝利判定
+function checkWin(){
+  let r=0,b=0;
+  for(let row of squares)for(let s of row){
+    if(!s.piece)continue;
+    s.piece.color==="red"?r++:b++;
+  }
+  if(!r||!b){
+    statusText.textContent=(r?"赤":"黒")+"の勝利！";
+    return true;
+  }
+  return false;
+}
+
+function highlight(r,c){ clear(); squares[r][c].square.classList.add("highlight"); }
+function clear(){ document.querySelectorAll(".highlight").forEach(e=>e.classList.remove("highlight")); }
+
+init();
+</script>
+</body>
+</html>
